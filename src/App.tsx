@@ -47,6 +47,7 @@ export default function App() {
     (!onlyEncrypted || p.encrypted) && `${p.schema}.${p.name}`.toLowerCase().includes(search.toLowerCase())
   ), [procedures, onlyEncrypted, search]);
   const encryptedCount = procedures.filter(p => p.encrypted).length;
+  const shown = result && selected && result.procedure === `${selected.schema}.${selected.name}` ? result : null;
   const isBusy = busy !== null;
 
   function updateConfig(field: keyof Conn, value: string) {
@@ -102,13 +103,13 @@ export default function App() {
   }
 
   async function exportFile() {
-    if (!result) return;
+    if (!shown) return;
     setBusy('export'); setAlert(null);
     try {
-      const filename = `${result.procedure.replace(/[^a-zA-Z0-9_-]/g, '_')}.sql`;
+      const filename = `${shown.procedure.replace(/[^a-zA-Z0-9_-]/g, '_')}.sql`;
       const path = await save({ defaultPath: filename, filters: [{ name: 'SQL source', extensions: ['sql'] }] });
       if (!path) return;
-      const saved = await invoke<string>('export_sql', { path, content: result.source });
+      const saved = await invoke<string>('export_sql', { path, content: shown.source });
       setAlert({ kind: 'success', title: 'Exported', message: `Saved to ${saved}. Existing files are never overwritten.` });
     } catch (e) { showError(e); }
     finally { setBusy(null); }
@@ -118,7 +119,7 @@ export default function App() {
     setSelected(proc); setResult(null); setAlert(null);
   }
 
-  const preview = result?.source.slice(0, 160_000) ?? '';
+  const preview = shown?.source.slice(0, 160_000) ?? '';
   const lineCount = preview ? preview.split('\n').length : 0;
 
   return <div className="shell">
@@ -156,16 +157,16 @@ export default function App() {
       </section>
       <section className="editor-pane">
         <div className="editor-top"><div className="editor-title"><span className="eyebrow">SOURCE INSPECTOR</span><h1>{selected ? selected.name : 'Select a stored procedure'}</h1><div className="metadata">{selected && <><span>{selected.schema}</span><span className="metadata-sep">/</span><span>Object ID {selected.objectId}</span><Tag type={selected.encrypted ? 'purple' : 'gray'}>{selected.encrypted ? 'Encrypted':'Plaintext'}</Tag></>}</div></div>
-          <div className="editor-actions"><Button size="sm" kind="secondary" renderIcon={Download} disabled={!result || isBusy} onClick={exportFile}>Export .sql</Button><Button size="sm" renderIcon={Code} disabled={!selected?.encrypted || !info || isBusy} onClick={() => { setRiskAcknowledged(false); setConfirmOpen(true); }}>Decrypt</Button></div>
+          <div className="editor-actions"><Button size="sm" kind="secondary" renderIcon={Download} disabled={!shown || isBusy} onClick={exportFile}>Export .sql</Button><Button size="sm" renderIcon={Code} disabled={!selected?.encrypted || !info || isBusy} onClick={() => { setRiskAcknowledged(false); setConfirmOpen(true); }}>Decrypt</Button></div>
         </div>
         {alert && <div className="alert"><InlineNotification kind={alert.kind} title={alert.title} subtitle={alert.message} lowContrast onCloseButtonClick={() => setAlert(null)}/></div>}
         {busy === 'decrypt' && <div className="loading"><InlineLoading description="Decrypting with bounded DBCC PAGE reads..."/></div>}
-        <div className="code-toolbar"><div><Document size={16}/><span>{result ? `${result.procedure}.sql` : 'SQL preview'}</span></div><span>{result ? `${result.bytes.toLocaleString()} bytes · UTF-8` : 'No source loaded'}</span></div>
+        <div className="code-toolbar"><div><Document size={16}/><span>{shown ? `${shown.procedure}.sql` : 'SQL preview'}</span></div><span>{shown ? `${shown.bytes.toLocaleString()} bytes · UTF-8` : 'No source loaded'}</span></div>
         <div className="editor-area">
-          {result ? <div className="code-view"><div className="line-numbers" aria-hidden="true">{Array.from({length: lineCount},(_,i) => <span key={i}>{i+1}</span>)}</div><pre><code>{highlighted(preview)}{result.source.length > preview.length ? '\n-- Preview truncated. Export saves the complete SQL file.' : ''}</code></pre></div>
+          {shown ? <div className="code-view"><div className="line-numbers" aria-hidden="true">{Array.from({length: lineCount},(_,i) => <span key={i}>{i+1}</span>)}</div><pre><code>{highlighted(preview)}{shown.source.length > preview.length ? '\n-- Preview truncated. Export saves the complete SQL file.' : ''}</code></pre></div>
           : <div className="editor-empty"><div className="empty-icon"><Code size={32}/></div><h3>SQL source preview</h3><p>{selected?.encrypted ? 'Decrypt the selected procedure to inspect its source code.' : selected ? 'This module is not encrypted. MVP decrypt is available for encrypted procedures only.' : 'Select an encrypted procedure in the explorer to get started.'}</p><div className="empty-hint"><span className="step-circle">1</span> Connect <ChevronRight size={13}/><span className="step-circle">2</span> Browse <ChevronRight size={13}/><span className="step-circle">3</span> Decrypt <ChevronRight size={13}/><span className="step-circle">4</span> Export</div></div>}
         </div>
-        <footer className="editor-footer"><span>{result ? 'Validation passed · Not executed in SQL Server' : 'SQL scripts are never executed by this app'}</span><span>SQL Decryptor v0.1.0</span></footer>
+        <footer className="editor-footer"><span>{shown ? 'Validation passed · Not executed in SQL Server' : 'SQL scripts are never executed by this app'}</span><span>SQL Decryptor v0.1.0</span></footer>
       </section>
     </main>
     <Modal open={confirmOpen} danger modalHeading="Decrypt encrypted stored procedure?" primaryButtonText="I understand — decrypt" secondaryButtonText="Cancel" primaryButtonDisabled={!riskAcknowledged} onRequestSubmit={decrypt} onRequestClose={() => setConfirmOpen(false)}>
