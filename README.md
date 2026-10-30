@@ -85,6 +85,7 @@ Open the app and fill in Server (e.g. `localhost` or `host\instance`), Database 
 ## Limits and security
 
 - The SQL Server connection uses `sqlcmd` as a child process, not PowerShell. Server/database/user input is restricted; the metadata queries built by the app are fixed.
+- At startup the app checks for `sqlcmd` and shows a persistent warning with a **Check again** action if it is missing. The AppImage/installer does not bundle `sqlcmd`; restart the app after changing `PATH`.
 - The password exists only in frontend memory for the session, is passed over Tauri IPC, and is forwarded to the **sqlcmd child process environment**. It is not sent via the `-P` argument, stored in a configuration file, or recorded in logs. Clearing the field or closing the app removes the value from that process.
 - The engine **does not intentionally write to the database** (no DDL/DML). However, `DBCC PAGE` is an undocumented internal operation and can consume server resources. **There is no guarantee of zero downtime.** Test on a restored database and obtain DBA permission before using it in production.
 - `max_pages` for the GUI is pinned to 32. If it is too small for a large procedure, the process refuses instead of raising it automatically. The page and internal LOB parsers need cross-version validation.

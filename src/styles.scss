@@ -15,6 +15,13 @@ button { cursor: pointer; }
 .status-dot { height: 7px; width: 7px; border-radius: 50%; background: #8997a6; display: inline-block; }
 .status-dot.online { background: #69d3a8; box-shadow: 0 0 0 3px rgba(105,211,168,.12); }
 .top-divider { border-left: 1px solid #486280; height: 18px; margin: 0 10px; }
+.tool-warning { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 24px; background: #fff4e5; border-bottom: 1px solid #f0c37a; color: #4a3200; font-size: 12px; }
+.tool-warning > svg { color: #b57b00; flex: 0 0 auto; }
+.tool-warning-copy { flex: 1; min-width: 260px; }
+.tool-warning-copy strong { display: block; font-size: 12px; font-weight: 600; }
+.tool-warning-copy p { margin: 3px 0 0; line-height: 1.45; }
+.tool-warning code { background: #f6e3c2; padding: 0 3px; }
+.tool-warning .cds--btn { flex: 0 0 auto; }
 .app-layout { display: grid; flex: 1; min-height: 0; grid-template-columns: 272px 320px minmax(370px,1fr); }
 .connection-pane, .browser-pane, .editor-pane { min-height: 0; }
 .connection-pane { display: flex; flex-direction: column; background: #fff; border-right: 1px solid #dedede; overflow: auto; }

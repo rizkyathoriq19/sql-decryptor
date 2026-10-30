@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Button, Checkbox, InlineLoading, InlineNotification, Modal, PasswordInput,
   Search, Tag, TextInput,
@@ -42,6 +42,8 @@ export default function App() {
   const [alert, setAlert] = useState<Alert | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [riskAcknowledged, setRiskAcknowledged] = useState(false);
+  const [sqlcmdReady, setSqlcmdReady] = useState<boolean | null>(null);
+  const [checkingSqlcmd, setCheckingSqlcmd] = useState(false);
 
   const visible = useMemo(() => procedures.filter(p =>
     (!onlyEncrypted || p.encrypted) && `${p.schema}.${p.name}`.toLowerCase().includes(search.toLowerCase())
@@ -49,6 +51,15 @@ export default function App() {
   const encryptedCount = procedures.filter(p => p.encrypted).length;
   const shown = result && selected && result.procedure === `${selected.schema}.${selected.name}` ? result : null;
   const isBusy = busy !== null;
+
+  async function checkSqlcmd() {
+    setCheckingSqlcmd(true);
+    try { setSqlcmdReady(await invoke<boolean>('check_sqlcmd')); }
+    catch { setSqlcmdReady(false); }
+    finally { setCheckingSqlcmd(false); }
+  }
+
+  useEffect(() => { void checkSqlcmd(); }, []);
 
   function updateConfig(field: keyof Conn, value: string) {
     setConfig(v => ({ ...v, [field]: value }));
@@ -129,6 +140,16 @@ export default function App() {
       <div className="top-brand"><div className="brand-mark"><DataBase size={19}/></div><div><strong>SQL Decryptor</strong><small>Developer tools / v0.1.0</small></div></div>
       <div className="top-status"><span className={`status-dot ${info ? 'online' : ''}`}/><span>{info ? `Connected to ${config.server}` : 'Not connected'}</span><span className="top-divider"/><span>Read-only metadata · guarded extraction</span></div>
     </header>
+    {sqlcmdReady === false && (
+      <div className="tool-warning" role="alert">
+        <WarningAlt size={17}/>
+        <div className="tool-warning-copy">
+          <strong>sqlcmd not found</strong>
+          <p>This app needs the SQL Server command-line tools. Install <code>sqlcmd</code> and make sure it is on this app's PATH, then check again. Restart the app after changing PATH.</p>
+        </div>
+        <Button size="sm" kind="ghost" disabled={checkingSqlcmd} onClick={checkSqlcmd}>{checkingSqlcmd ? 'Checking...' : 'Check again'}</Button>
+      </div>
+    )}
     <main className="app-layout">
       <aside className="connection-pane">
         <div className="pane-heading"><span className="eyebrow">WORKSPACE</span><h2>Connection</h2><p>Connect to a SQL Server instance to browse encrypted modules.</p></div>

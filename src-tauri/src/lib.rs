@@ -90,6 +90,27 @@ fn sqlcmd(conn: &Connection, query: &str) -> Result<String, String> {
     Ok(stdout)
 }
 
+fn sqlcmd_available() -> bool {
+    let mut command = Command::new("sqlcmd");
+    command
+        .arg("-?")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    command.status().is_ok()
+}
+
+#[tauri::command]
+async fn check_sqlcmd() -> bool {
+    tauri::async_runtime::spawn_blocking(sqlcmd_available)
+        .await
+        .unwrap_or(false)
+}
+
 fn records<'a>(s: &'a str, prefix: &str) -> Vec<Vec<&'a str>> {
     s.lines().filter_map(|line| line.find(prefix).map(|pos| {
         line[pos + prefix.len()..].trim().split('|').collect::<Vec<_>>()
@@ -193,7 +214,7 @@ async fn export_sql(path: String, content: String) -> Result<String, String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![connect_database, browse_procedures, decrypt_procedure, export_sql])
+        .invoke_handler(tauri::generate_handler![check_sqlcmd, connect_database, browse_procedures, decrypt_procedure, export_sql])
         .run(tauri::generate_context!())
         .expect("failed to run SQL Decryptor desktop");
 }
