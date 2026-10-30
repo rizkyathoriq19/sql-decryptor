@@ -17,7 +17,7 @@ type Decrypted = { procedure: string; source: string; bytes: number; note: strin
 type Alert = { kind: 'error' | 'success' | 'warning' | 'info'; title: string; message: string };
 type Work = 'connect' | 'browse' | 'decrypt' | 'export' | null;
 
-const START: Conn = { server: '10.0.2.7', database: 'PTTTI', username: 'sa', password: '' };
+const START: Conn = { server: '', database: '', username: '', password: '' };
 
 function highlighted(text: string) {
   const chunks = text.split(/(--[^\n]*|'(?:''|[^'])*'|\b(?:CREATE|ALTER|PROCEDURE|PROC|BEGIN|END|SET|AS|SELECT|FROM|WHERE|JOIN|ON|DECLARE|EXEC|EXECUTE|INSERT|INTO|UPDATE|DELETE|IF|ELSE|RETURN|OUTPUT|CASE|WHEN|THEN|AND|OR|NOT|NULL|IS|TRY|CATCH|TRANSACTION|COMMIT|ROLLBACK|RAISERROR|INT|VARCHAR|NVARCHAR|DATETIME|NUMERIC|BIT|GO)\b)/gi);
@@ -60,7 +60,9 @@ export default function App() {
   }
 
   async function connect() {
-    if (!config.password) { showError('Enter the SQL Server password to connect.'); return; }
+    if (!config.server || !config.database || !config.username || !config.password) {
+      showError('Server, database, username, and password are required.'); return;
+    }
     setAlert(null); setBusy('connect'); setResult(null);
     try {
       const data = await invoke<ServerInfo>('connect_database', { config });
@@ -69,7 +71,7 @@ export default function App() {
       try {
         const items = await invoke<Proc[]>('browse_procedures', { config });
         setProcedures(items);
-        setSelected(items.find(x => x.name === 'taGLTransactionHeaderInsert') || items[0] || null);
+        setSelected(items[0] || null);
         setAlert({ kind: 'success', title: 'Connected', message: `Connected to ${data.database}. Loaded ${items.length} procedures.` });
       } catch (e) { showError(e); }
     } catch (e) { setInfo(null); showError(e); }
@@ -131,11 +133,11 @@ export default function App() {
       <aside className="connection-pane">
         <div className="pane-heading"><span className="eyebrow">WORKSPACE</span><h2>Connection</h2><p>Connect to a SQL Server instance to browse encrypted modules.</p></div>
         <div className="connection-fields">
-          <TextInput id="host" labelText="Server" value={config.server} placeholder="10.0.2.7" disabled={isBusy} onChange={e => updateConfig('server',e.target.value)}/>
+          <TextInput id="host" labelText="Server" value={config.server} disabled={isBusy} onChange={e => updateConfig('server',e.target.value)}/>
           <TextInput id="database" labelText="DataBase" value={config.database} disabled={isBusy} onChange={e => updateConfig('database',e.target.value)}/>
           <TextInput id="username" labelText="Username" value={config.username} disabled={isBusy} onChange={e => updateConfig('username',e.target.value)}/>
           <PasswordInput id="pwd" labelText="Password" value={config.password} placeholder="Enter SQL password" disabled={isBusy} onChange={e => updateConfig('password',e.target.value)}/>
-          <Button className="connect-btn" disabled={isBusy || !config.password} onClick={connect} renderIcon={Connect}>{info ? 'Reconnect' : 'Connect to server'}</Button>
+          <Button className="connect-btn" disabled={isBusy || !config.server || !config.database || !config.username || !config.password} onClick={connect} renderIcon={Connect}>{info ? 'Reconnect' : 'Connect to server'}</Button>
           {busy === 'connect' && <InlineLoading description="Connecting to SQL Server..."/>}
           {info && <div className="connected-summary"><span className="summary-title">ACTIVE CONNECTION</span><div><span>DataBase</span><strong>{info.database}</strong></div><div><span>SQL Server</span><strong>{info.productVersion}</strong></div><div><span>Admin access</span><Tag type={info.isSysadmin ? 'green':'warm-gray'}>{info.isSysadmin?'Yes':'No'}</Tag></div></div>}
         </div>

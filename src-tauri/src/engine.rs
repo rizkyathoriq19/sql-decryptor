@@ -462,7 +462,7 @@ fn remote_run(server: String, database: String, user: String, procedure: String,
     checked_token(&user, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-", "user")?;
     checked_token(&procedure, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.", "procedure")?;
     let parts: Vec<&str> = procedure.split('.').collect();
-    if parts.len() != 2 || parts.iter().any(|s| s.is_empty()) { return Err("procedure must be schema.name, e.g. dbo.taGLTransactionHeaderInsert".into()); }
+    if parts.len() != 2 || parts.iter().any(|s| s.is_empty()) { return Err("procedure must be schema.name, e.g. dbo.MyProcedure".into()); }
     if !inspect && (!allow_pages || output.is_none()) {
         return Err("extraction requires --allow-dbcc-page and --output; test on a RESTORED database first".into());
     }

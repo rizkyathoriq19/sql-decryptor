@@ -80,7 +80,7 @@ Delapan unit test engine lulus (SHA-1, RC4, GUID .NET, hex, round-trip, index po
 
 ## Penggunaan
 
-Buka aplikasi, isi Server (`10.0.2.7`), Database (`PTTTI`), Username (`sa`), dan password (tidak disimpan). Tekan **Connect**, pilih prosedur terenkripsi, lalu **Decrypt**. Dialog meminta persetujuan sebelum operasi `DBCC PAGE`. Setelah muncul source, tekan **Export .sql** untuk memilih lokasi penyimpanan. File SQL untuk analisis saja, **jangan dieksekusi ke production**.
+Buka aplikasi, isi Server (mis. `localhost` atau `host\instance`), Database (nama database), Username (login SQL Server), dan password (tidak disimpan). Tekan **Connect**, pilih prosedur terenkripsi, lalu **Decrypt**. Dialog meminta persetujuan sebelum operasi `DBCC PAGE`. Setelah muncul source, tekan **Export .sql** untuk memilih lokasi penyimpanan. File SQL untuk analisis saja, **jangan dieksekusi ke production**.
 
 ## Batasan dan keamanan
 
