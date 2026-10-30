@@ -126,7 +126,7 @@ export default function App() {
 
   return <div className="shell">
     <header className="topbar">
-      <div className="top-brand"><div className="brand-mark"><DataBase size={19}/></div><div><strong>SQL Decryptor</strong><small>Developer tools / MVP</small></div></div>
+      <div className="top-brand"><div className="brand-mark"><DataBase size={19}/></div><div><strong>SQL Decryptor</strong><small>Developer tools / v0.1.0</small></div></div>
       <div className="top-status"><span className={`status-dot ${info ? 'online' : ''}`}/><span>{info ? `Connected to ${config.server}` : 'Not connected'}</span><span className="top-divider"/><span>Read-only metadata · guarded extraction</span></div>
     </header>
     <main className="app-layout">
