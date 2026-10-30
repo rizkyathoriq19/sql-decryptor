@@ -2,7 +2,7 @@
 
 Desktop MVP untuk **connect → browse procedures → decrypt → export**. UI dibangun dengan React/TypeScript, IBM Carbon, dan Tauri 2; backend menggunakan **engine `sqltextdecrypt_remote.rs` milik pengguna** yang disalin sebagai `src-tauri/src/engine.rs` lalu diadaptasi supaya dipanggil secara langsung sebagai modul Rust.
 
-> **Status:** source project selesai disusun. Engine crypto pernah lulus 8 test pada mesin pengguna; di lingkungan pembuat proyek ini `rustc/cargo` tidak tersedia dan unduhan dependensi NPM timeout, sehingga **build Tauri lengkap, integrasi GUI nyata, dan SQL Server live tidak dapat diverifikasi di sini**. Uji pada komputer Omarchy terlebih dahulu.
+> **Status:** source project selesai disusun. Verifikasi source-level di Linux/Omarchy: `npm run build` (tsc + Vite) lulus, `cargo check` 0 error, dan 8 unit test engine lulus. **Build bundle Tauri lengkap, integrasi GUI nyata, dan SQL Server live belum diverifikasi**; uji dengan database hasil restore dan izin DBA terlebih dahulu.
 
 ## Fitur
 
@@ -76,7 +76,7 @@ rustc --edition=2021 --test src-tauri/src/engine.rs -o /tmp/sql_decryptor_tests
 /tmp/sql_decryptor_tests
 ```
 
-Harapannya delapan unit test lama dan tambahan berhasil; tes ini **bukan** pembuktian bahwa ekstraksi akan berhasil pada semua versi SQL Server.
+Delapan unit test engine lulus (SHA-1, RC4, GUID .NET, hex, round-trip, index pointer, strict UTF-16, dan parser DBCC). Tes ini **bukan** pembuktian bahwa ekstraksi akan berhasil pada semua versi SQL Server.
 
 ## Penggunaan
 
