@@ -144,7 +144,7 @@ export default function App() {
         <div className="browser-header"><div><span className="eyebrow">DATABASE EXPLORER</span><h2>Stored procedures</h2></div><Button kind="ghost" size="sm" hasIconOnly iconDescription="Refresh procedures" disabled={!info || isBusy} renderIcon={Renew} onClick={refresh}/></div>
         <div className="browser-tools">
           <Search size="md" id="procedure-search" labelText="Search procedures" placeholder="Search procedures" value={search} onChange={e => setSearch(e.target.value)}/>
-          <div className="filter-line"><Checkbox id="encrypted-only" labelText="Encrypted only" checked={onlyEncrypted} onChange={checked => setOnlyEncrypted(checked)}/></div>
+          <div className="filter-line"><Checkbox id="encrypted-only" labelText="Encrypted only" checked={onlyEncrypted} onChange={(_evt, { checked }) => setOnlyEncrypted(checked)}/></div>
         </div>
         <div className="browser-stats"><span>{visible.length} shown</span><Tag type="blue">{encryptedCount} encrypted</Tag></div>
         <div className="object-list">
@@ -172,7 +172,7 @@ export default function App() {
       <p className="risk-lead"><strong>{selected ? `${selected.schema}.${selected.name}` : ''}</strong> on <strong>{config.server}/{config.database}</strong></p>
       <p>The operation reads SQL Server internal pages using <strong>DBCC PAGE</strong>. It does not intentionally modify database objects, but is experimental and can consume server I/O. Server availability cannot be guaranteed.</p>
       <p>The engine limits unique page reads to <strong>32</strong>. Use a restored database for first testing; only use a production server with DBA authorization.</p>
-      <div className="modal-check"><Checkbox id="risk-confirm" labelText="I am authorized to inspect this database and accept the operational risk." checked={riskAcknowledged} onChange={checked => setRiskAcknowledged(checked)}/></div>
+      <div className="modal-check"><Checkbox id="risk-confirm" labelText="I am authorized to inspect this database and accept the operational risk." checked={riskAcknowledged} onChange={(_evt, { checked }) => setRiskAcknowledged(checked)}/></div>
     </Modal>
   </div>;
 }
