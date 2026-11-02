@@ -456,9 +456,15 @@ fn checked_token(s: &str, allowed: &str, label: &str) -> Result<(), String> {
     }
     Ok(())
 }
+pub(crate) fn check_database_name(s: &str) -> Result<(), String> {
+    if s.is_empty() || s.encode_utf16().count() > 128 || s.chars().any(char::is_control) {
+        return Err("invalid database: use a name up to 128 characters without control characters".into());
+    }
+    Ok(())
+}
 fn remote_run(server: String, database: String, user: String, procedure: String, output: Option<String>, inspect: bool, allow_pages: bool, max_pages: usize, password: String) -> Result<(), String> {
     checked_token(&server, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,:-_\\", "server")?;
-    checked_token(&database, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-", "database")?;
+    check_database_name(&database)?;
     checked_token(&user, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-", "user")?;
     checked_token(&procedure, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.", "procedure")?;
     let parts: Vec<&str> = procedure.split('.').collect();

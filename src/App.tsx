@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Button, Checkbox, InlineLoading, InlineNotification, Modal, PasswordInput,
+  Button, Checkbox, Dropdown, InlineLoading, InlineNotification, Modal, PasswordInput,
   Search, Tag, TextInput,
 } from '@carbon/react';
 import {
@@ -11,7 +11,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
 
 type Conn = { server: string; database: string; username: string; password: string };
-type ServerInfo = { database: string; productVersion: string; isSysadmin: boolean };
+type ServerInfo = { database: string; databases: string[]; productVersion: string; isSysadmin: boolean };
 type Proc = { schema: string; name: string; objectId: number; encrypted: boolean };
 type Decrypted = { procedure: string; source: string; bytes: number; note: string };
 type Alert = { kind: 'error' | 'success' | 'warning' | 'info'; title: string; message: string };
@@ -70,17 +70,20 @@ export default function App() {
     setAlert({ kind: 'error', title: 'Operation failed', message: String(error) });
   }
 
-  async function connect() {
-    if (!config.server || !config.database || !config.username || !config.password) {
+  async function connect(database = config.database) {
+    const connection = { ...config, database };
+    if (!connection.server || !connection.database || !connection.username || !connection.password) {
       showError('Server, database, username, and password are required.'); return;
     }
-    setAlert(null); setBusy('connect'); setResult(null);
+    setConfig(connection); setAlert(null); setBusy('connect'); setResult(null);
+    setProcedures([]); setSelected(null);
     try {
-      const data = await invoke<ServerInfo>('connect_database', { config });
+      const data = await invoke<ServerInfo>('connect_database', { config: connection });
       setInfo(data);
+      setConfig({ ...connection, database: data.database });
       setBusy('browse');
       try {
-        const items = await invoke<Proc[]>('browse_procedures', { config });
+        const items = await invoke<Proc[]>('browse_procedures', { config: connection });
         setProcedures(items);
         setSelected(items[0] || null);
         setAlert({ kind: 'success', title: 'Connected', message: `Connected to ${data.database}. Loaded ${items.length} procedures.` });
@@ -96,7 +99,7 @@ export default function App() {
       const items = await invoke<Proc[]>('browse_procedures', { config });
       setProcedures(items);
       setSelected(old => items.find(p => p.schema === old?.schema && p.name === old?.name) || items[0] || null);
-      setAlert({ kind: 'info', title: 'Refreshed', message: `Loaded ${items.length} procedures (first 1,000 maximum).` });
+      setAlert({ kind: 'info', title: 'Refreshed', message: `Loaded ${items.length} procedures.` });
     } catch(e) { showError(e); }
     finally { setBusy(null); }
   }
@@ -155,10 +158,10 @@ export default function App() {
         <div className="pane-heading"><span className="eyebrow">WORKSPACE</span><h2>Connection</h2><p>Connect to a SQL Server instance to browse encrypted modules.</p></div>
         <div className="connection-fields">
           <TextInput id="host" labelText="Server" value={config.server} disabled={isBusy} onChange={e => updateConfig('server',e.target.value)}/>
-          <TextInput id="database" labelText="DataBase" value={config.database} disabled={isBusy} onChange={e => updateConfig('database',e.target.value)}/>
+          {info ? <Dropdown id="database" titleText="DataBase" label="Select a database" items={info.databases} selectedItem={config.database} itemToString={item => String(item ?? '')} disabled={isBusy} onChange={({ selectedItem }) => { if (selectedItem && selectedItem !== config.database) void connect(selectedItem); }}/> : <TextInput id="database" labelText="DataBase" value={config.database} disabled={isBusy} onChange={e => updateConfig('database',e.target.value)}/>}
           <TextInput id="username" labelText="Username" value={config.username} disabled={isBusy} onChange={e => updateConfig('username',e.target.value)}/>
           <PasswordInput id="pwd" labelText="Password" value={config.password} placeholder="Enter SQL password" disabled={isBusy} onChange={e => updateConfig('password',e.target.value)}/>
-          <Button className="connect-btn" disabled={isBusy || !config.server || !config.database || !config.username || !config.password} onClick={connect} renderIcon={Connect}>{info ? 'Reconnect' : 'Connect to server'}</Button>
+          <Button className="connect-btn" disabled={isBusy || !config.server || !config.database || !config.username || !config.password} onClick={() => connect()} renderIcon={Connect}>{info ? 'Reconnect' : 'Connect to server'}</Button>
           {busy === 'connect' && <InlineLoading description="Connecting to SQL Server..."/>}
           {info && <div className="connected-summary"><span className="summary-title">ACTIVE CONNECTION</span><div><span>DataBase</span><strong>{info.database}</strong></div><div><span>SQL Server</span><strong>{info.productVersion}</strong></div><div><span>Admin access</span><Tag type={info.isSysadmin ? 'green':'warm-gray'}>{info.isSysadmin?'Yes':'No'}</Tag></div></div>}
         </div>
@@ -173,10 +176,11 @@ export default function App() {
         <div className="browser-stats"><span>{visible.length} shown</span><Tag type="blue">{encryptedCount} encrypted</Tag></div>
         <div className="object-list">
           {procedures.length === 0 && <div className="empty-procedures"><DataBase size={28}/><p>{info ? 'No procedures found' : 'Connect to browse database objects'}</p></div>}
+          {/* ponytail: render all matches; virtualize if large databases make the list slow. */}
           {visible.map(p => <button key={`${p.schema}.${p.name}`} type="button" className={`proc-item ${selected?.objectId === p.objectId ? 'active':''}`} onClick={() => selectProcedure(p)}><span className="proc-icon">{p.encrypted ? <Locked size={16}/> : <Unlocked size={16}/>}</span><span className="proc-name"><strong title={`${p.schema}.${p.name}`}>{p.name}</strong><small>{p.schema} · ID {p.objectId}</small></span><ChevronRight size={14}/></button>)}
           {procedures.length > 0 && visible.length === 0 && <div className="empty-procedures"><p>No matching procedures</p></div>}
         </div>
-        <div className="browser-bottom">Showing up to 1,000 procedures per database</div>
+        <div className="browser-bottom">All user-defined procedures in the selected database</div>
       </section>
       <section className="editor-pane">
         <div className="editor-top"><div className="editor-title"><span className="eyebrow">SOURCE INSPECTOR</span><h1>{selected ? selected.name : 'Select a stored procedure'}</h1><div className="metadata">{selected && <><span>{selected.schema}</span><span className="metadata-sep">/</span><span>Object ID {selected.objectId}</span><Tag type={selected.encrypted ? 'purple' : 'gray'}>{selected.encrypted ? 'Encrypted':'Plaintext'}</Tag></>}</div></div>

@@ -7,7 +7,7 @@ Desktop MVP for **connect → browse procedures → decrypt → export**. The UI
 ## Features
 
 1. **Connect**: opens a real SQL Server connection through the installed `sqlcmd`. Reads `DB_NAME()`, `ProductVersion`, and the sysadmin role.
-2. **Browse**: reads `sys.procedures` (max. 1,000 rows), filters by name, and detects `IsEncrypted`.
+2. **Browse**: reads all user-defined procedures in the selected database, filters by name, and detects `IsEncrypted`. After connecting, the database field becomes a dropdown of accessible online databases.
 3. **Decrypt**: uses SHA-1/RC4/UTF-16LE and ciphertext extraction through bounded `DBCC PAGE` calls from the existing engine. Limited to **32 unique pages**, one decryption at a time, and an acknowledgment checkbox is required for every operation. Output is strictly validated before display.
 4. **Export**: uses the native save dialog for `.sql` files and **never overwrites an existing file**.
 
@@ -80,7 +80,7 @@ Eight engine unit tests pass (SHA-1, RC4, .NET GUID, hex, round-trip, index poin
 
 ## Usage
 
-Open the app and fill in Server (e.g. `localhost` or `host\instance`), Database (database name), Username (SQL Server login), and password (not stored). Press **Connect**, select an encrypted procedure, then **Decrypt**. The dialog asks for acknowledgment before the `DBCC PAGE` operation. Once the source appears, press **Export .sql** to choose a save location. The SQL file is for analysis only; **do not execute it in production**.
+Open the app and fill in Server (e.g. `localhost` or `host\instance`), Database (database name), Username (SQL Server login), and password (not stored). Press **Connect**; choose a different database from the dropdown to load its procedures immediately. Select an encrypted procedure, then **Decrypt**. The dialog asks for acknowledgment before the `DBCC PAGE` operation. Once the source appears, press **Export .sql** to choose a save location. The SQL file is for analysis only; **do not execute it in production**.
 
 ## Limits and security
 
@@ -91,7 +91,7 @@ Open the app and fill in Server (e.g. `localhost` or `host\instance`), Database 
 - `max_pages` for the GUI is pinned to 32. If it is too small for a large procedure, the process refuses instead of raising it automatically. The page and internal LOB parsers need cross-version validation.
 - The GUI does not open a connection automatically at app startup. Only selecting an encrypted procedure can request decryption.
 - `src-tauri/src/engine.rs` still uses the internal `sysobjvalues` index mapping (`object_id=60`, `index_id=1`) based on inspected SQL Server 2019 metadata; it is not guaranteed to work on other SQL Server versions.
-- The procedure list is capped at 1,000 results; the MVP has no pagination or data table editor.
+- The procedure list loads all user-defined procedures in the selected database; the MVP has no pagination or data table editor.
 - Export uses exclusive `create_new`; if the file already exists, choose a different name.
 - This project includes no credentials, ciphertext, decrypted eConnect source, or server access.
 

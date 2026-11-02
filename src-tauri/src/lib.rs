@@ -27,6 +27,7 @@ struct Connection {
 #[serde(rename_all = "camelCase")]
 struct ServerInfo {
     database: String,
+    databases: Vec<String>,
     product_version: String,
     is_sysadmin: bool,
 }
@@ -61,7 +62,7 @@ fn check_identifier(value: &str, label: &str, permitted: &str) -> Result<(), Str
 
 fn validate(conn: &Connection) -> Result<(), String> {
     check_identifier(&conn.server, "server", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,:-_\\")?;
-    check_identifier(&conn.database, "database", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-")?;
+    engine::check_database_name(&conn.database)?;
     check_identifier(&conn.username, "username", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-")?;
     if conn.password.is_empty() || conn.password.len() > 4096 {
         return Err("A password is required (maximum 4096 characters)".into());
@@ -120,14 +121,19 @@ fn records<'a>(s: &'a str, prefix: &str) -> Vec<Vec<&'a str>> {
 #[tauri::command]
 async fn connect_database(config: Connection) -> Result<ServerInfo, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let query = "SET NOCOUNT ON; SELECT 'CONNECTED|' + DB_NAME() + '|' + CONVERT(varchar(128),SERVERPROPERTY('ProductVersion')) + '|' + CONVERT(varchar(1),IS_SRVROLEMEMBER('sysadmin'));";
+        let query = "SET NOCOUNT ON; SELECT 'CONNECTED|' + DB_NAME() + '|' + CONVERT(varchar(128),SERVERPROPERTY('ProductVersion')) + '|' + CONVERT(varchar(1),IS_SRVROLEMEMBER('sysadmin')); SELECT 'DATABASE|\"' + STRING_ESCAPE(name,'json') + '\"' FROM sys.databases WHERE state=0 AND HAS_DBACCESS(name)=1 AND (database_id>4 OR name=DB_NAME()) ORDER BY name;";
         let result = sqlcmd(&config, query)?;
         let rows = records(&result, "CONNECTED|");
         let row = rows.first().ok_or("SQL Server returned no connection metadata")?;
         if rows.len() != 1 || row.len() != 3 { return Err("Unexpected connection metadata format".into()); }
+        let databases = records(&result, "DATABASE|").into_iter().map(|row| {
+            if row.len() != 1 { return Err("Unexpected database list format".into()); }
+            serde_json::from_str::<String>(row[0])
+                .map_err(|e| format!("Could not parse database list: {e}"))
+        }).collect::<Result<Vec<_>, _>>()?;
         Ok(ServerInfo {
             database: row[0].to_string(), product_version: row[1].to_string(),
-            is_sysadmin: row[2] == "1",
+            databases, is_sysadmin: row[2] == "1",
         })
     }).await.map_err(|e| e.to_string())?
 }
@@ -135,8 +141,8 @@ async fn connect_database(config: Connection) -> Result<ServerInfo, String> {
 #[tauri::command]
 async fn browse_procedures(config: Connection) -> Result<Vec<Procedure>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        // Fixed SQL, no user-provided identifier interpolation. Top 1000 bounded browse.
-        let query = "SET NOCOUNT ON; SELECT TOP (1000) 'PROC|' + SCHEMA_NAME(p.schema_id) + '|' + p.name + '|' + CONVERT(varchar(20),p.object_id) + '|' + CONVERT(varchar(1),ISNULL(OBJECTPROPERTY(p.object_id,'IsEncrypted'),0)) FROM sys.procedures p WHERE p.is_ms_shipped=0 ORDER BY SCHEMA_NAME(p.schema_id),p.name;";
+        // Fixed SQL, no user-provided identifier interpolation.
+        let query = "SET NOCOUNT ON; SELECT 'PROC|' + SCHEMA_NAME(p.schema_id) + '|' + p.name + '|' + CONVERT(varchar(20),p.object_id) + '|' + CONVERT(varchar(1),ISNULL(OBJECTPROPERTY(p.object_id,'IsEncrypted'),0)) FROM sys.procedures p WHERE p.is_ms_shipped=0 ORDER BY SCHEMA_NAME(p.schema_id),p.name;";
         let output = sqlcmd(&config, query)?;
         let mut procedures = Vec::new();
         for row in records(&output, "PROC|") {
