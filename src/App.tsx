@@ -13,11 +13,28 @@ import { save } from '@tauri-apps/plugin-dialog';
 type Conn = { server: string; database: string; username: string; password: string };
 type ServerInfo = { database: string; databases: string[]; productVersion: string; isSysadmin: boolean };
 type Proc = { schema: string; name: string; objectId: number; encrypted: boolean };
-type Decrypted = { procedure: string; source: string; bytes: number; note: string };
+type Decrypted = { procedure: string; source: string; formattedSource?: string; displayBytes?: number; bytes: number; note: string };
 type Alert = { kind: 'error' | 'success' | 'warning' | 'info'; title: string; message: string };
-type Work = 'connect' | 'browse' | 'decrypt' | 'export' | null;
+type Work = 'connect' | 'browse' | 'decrypt' | 'format' | 'export' | null;
 
 const START: Conn = { server: '', database: '', username: '', password: '' };
+
+function formatSqlInWorker(source: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('./sqlFormatter.worker.ts', import.meta.url), { type: 'module' });
+    worker.onmessage = ({ data }: MessageEvent<{ formatted?: string; error?: string }>) => {
+      worker.terminate();
+      if (data.error) reject(new Error(data.error));
+      else resolve(data.formatted ?? '');
+    };
+    worker.onerror = () => {
+      worker.terminate();
+      reject(new Error('SQL formatter worker failed'));
+    };
+    try { worker.postMessage(source); }
+    catch (error) { worker.terminate(); reject(error); }
+  });
+}
 
 function highlighted(text: string) {
   const chunks = text.split(/(--[^\n]*|'(?:''|[^'])*'|\b(?:CREATE|ALTER|PROCEDURE|PROC|BEGIN|END|SET|AS|SELECT|FROM|WHERE|JOIN|ON|DECLARE|EXEC|EXECUTE|INSERT|INTO|UPDATE|DELETE|IF|ELSE|RETURN|OUTPUT|CASE|WHEN|THEN|AND|OR|NOT|NULL|IS|TRY|CATCH|TRANSACTION|COMMIT|ROLLBACK|RAISERROR|INT|VARCHAR|NVARCHAR|DATETIME|NUMERIC|BIT|GO)\b)/gi);
@@ -50,6 +67,7 @@ export default function App() {
   ), [procedures, onlyEncrypted, search]);
   const encryptedCount = procedures.filter(p => p.encrypted).length;
   const shown = result && selected && result.procedure === `${selected.schema}.${selected.name}` ? result : null;
+  const shownSource = shown?.formattedSource ?? shown?.source ?? '';
   const isBusy = busy !== null;
 
   async function checkSqlcmd() {
@@ -112,8 +130,19 @@ export default function App() {
       const data = await invoke<Decrypted>('decrypt_procedure', {
         config, procedure: `${selected.schema}.${selected.name}`, acknowledgeRisk: true,
       });
-      setResult(data);
-      setAlert({ kind: 'success', title: 'Decryption complete', message: `Validated ${data.bytes.toLocaleString()} UTF-8 bytes. Review the source before exporting.` });
+      setBusy('format');
+      let formattedSource: string | undefined;
+      let displayBytes = data.bytes;
+      try {
+        const formatted = await formatSqlInWorker(data.source);
+        displayBytes = new Blob([formatted]).size;
+        if (!formatted.trim() || displayBytes > 8 * 1024 * 1024) throw new Error('Formatted SQL is invalid or too large');
+        formattedSource = formatted;
+      } catch { /* Keep the original SQL available when the formatter cannot handle this procedure. */ }
+      setResult({ ...data, formattedSource, displayBytes: formattedSource ? displayBytes : data.bytes });
+      setAlert(formattedSource
+        ? { kind: 'success', title: 'Decryption complete', message: `Validated ${data.bytes.toLocaleString()} UTF-8 bytes. SQL was formatted for review and export.` }
+        : { kind: 'warning', title: 'Decryption complete · formatting unavailable', message: 'The formatter could not format this procedure. Preview and export use the original decrypted SQL.' });
     } catch (e) { showError(e); }
     finally { setBusy(null); setRiskAcknowledged(false); }
   }
@@ -125,7 +154,7 @@ export default function App() {
       const filename = `${shown.procedure.replace(/[^a-zA-Z0-9_-]/g, '_')}.sql`;
       const path = await save({ defaultPath: filename, filters: [{ name: 'SQL source', extensions: ['sql'] }] });
       if (!path) return;
-      const saved = await invoke<string>('export_sql', { path, content: shown.source });
+      const saved = await invoke<string>('export_sql', { path, content: shownSource });
       setAlert({ kind: 'success', title: 'Exported', message: `Saved to ${saved}. Existing files are never overwritten.` });
     } catch (e) { showError(e); }
     finally { setBusy(null); }
@@ -135,7 +164,7 @@ export default function App() {
     setSelected(proc); setResult(null); setAlert(null);
   }
 
-  const preview = shown?.source.slice(0, 160_000) ?? '';
+  const preview = shownSource.slice(0, 160_000);
   const lineCount = preview ? preview.split('\n').length : 0;
 
   return <div className="shell">
@@ -187,10 +216,10 @@ export default function App() {
           <div className="editor-actions"><Button size="sm" kind="secondary" renderIcon={Download} disabled={!shown || isBusy} onClick={exportFile}>Export .sql</Button><Button size="sm" renderIcon={Code} disabled={!selected?.encrypted || !info || isBusy} onClick={() => { setRiskAcknowledged(false); setConfirmOpen(true); }}>Decrypt</Button></div>
         </div>
         {alert && <div className="alert"><InlineNotification kind={alert.kind} title={alert.title} subtitle={alert.message} lowContrast onCloseButtonClick={() => setAlert(null)}/></div>}
-        {busy === 'decrypt' && <div className="loading"><InlineLoading description="Decrypting with bounded DBCC PAGE reads..."/></div>}
-        <div className="code-toolbar"><div><Document size={16}/><span>{shown ? `${shown.procedure}.sql` : 'SQL preview'}</span></div><span>{shown ? `${shown.bytes.toLocaleString()} bytes · UTF-8` : 'No source loaded'}</span></div>
+        {(busy === 'decrypt' || busy === 'format') && <div className="loading"><InlineLoading description={busy === 'format' ? 'Formatting decrypted SQL...' : 'Decrypting with bounded DBCC PAGE reads...'}/></div>}
+        <div className="code-toolbar"><div><Document size={16}/><span>{shown ? `${shown.procedure}.sql` : 'SQL preview'}</span></div><span>{shown ? `${shown.displayBytes?.toLocaleString() ?? shown.bytes.toLocaleString()} bytes · UTF-8` : 'No source loaded'}</span></div>
         <div className="editor-area">
-          {shown ? <div className="code-view"><div className="line-numbers" aria-hidden="true">{Array.from({length: lineCount},(_,i) => <span key={i}>{i+1}</span>)}</div><pre><code>{highlighted(preview)}{shown.source.length > preview.length ? '\n-- Preview truncated. Export saves the complete SQL file.' : ''}</code></pre></div>
+          {shown ? <div className="code-view"><div className="line-numbers" aria-hidden="true">{Array.from({length: lineCount},(_,i) => <span key={i}>{i+1}</span>)}</div><pre><code>{highlighted(preview)}{shownSource.length > preview.length ? '\n-- Preview truncated. Export saves the complete SQL file.' : ''}</code></pre></div>
           : <div className="editor-empty"><div className="empty-icon"><Code size={32}/></div><h3>SQL source preview</h3><p>{selected?.encrypted ? 'Decrypt the selected procedure to inspect its source code.' : selected ? 'This module is not encrypted. MVP decrypt is available for encrypted procedures only.' : 'Select an encrypted procedure in the explorer to get started.'}</p><div className="empty-hint"><span className="step-circle">1</span> Connect <ChevronRight size={13}/><span className="step-circle">2</span> Browse <ChevronRight size={13}/><span className="step-circle">3</span> Decrypt <ChevronRight size={13}/><span className="step-circle">4</span> Export</div></div>}
         </div>
         <footer className="editor-footer"><span>{shown ? 'Validation passed · Not executed in SQL Server' : 'SQL scripts are never executed by this app'}</span><span>SQL Decryptor v0.1.0</span></footer>

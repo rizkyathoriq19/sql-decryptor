@@ -12,12 +12,13 @@
     "desktop:build": "tauri build"
   },
   "dependencies": {
-    "@carbon/react": "^1.90.0",
     "@carbon/icons-react": "^11.65.0",
+    "@carbon/react": "^1.90.0",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.0.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "sql-formatter": "^15.9.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
