@@ -288,7 +288,10 @@ impl Client {
     fn read_page(&mut self, r: PageRef) -> Result<Vec<u8>, String> {
         if let Some(p) = self.page_cache.get(&r) { return Ok(p.clone()); }
         if self.page_count >= self.max_pages {
-            return Err(format!("page read cap {} reached; refusing to scan more pages", self.max_pages));
+            return Err(format!(
+                "page read cap reached: {}/{} unique DBCC PAGE reads; next page was refused",
+                self.page_count, self.max_pages
+            ));
         }
         let db = self.database.replace(']', "]]");
         let sql = format!("SET NOCOUNT ON; DBCC PAGE ([{db}], {}, {}, 2) WITH TABLERESULTS, NO_INFOMSGS;", r.file, r.page);
@@ -670,6 +673,22 @@ mod tests {
         let result = dump_from_dbcc(&text, PageRef {file:1,page:123}).unwrap();
         assert_eq!(result, page);
         assert!(dump_from_dbcc(&text, PageRef {file:1,page:124}).is_err());
+    }
+
+    #[test]
+    fn page_read_cap_error_reports_count_and_refused_page() {
+        let mut client = Client {
+            server: String::new(),
+            database: String::new(),
+            user: String::new(),
+            password: String::new(),
+            max_pages: 64,
+            page_count: 64,
+            page_cache: HashMap::new(),
+        };
+        let error = client.read_page(PageRef { file: 1, page: 123 }).unwrap_err();
+        assert!(error.contains("page read cap reached: 64/64 unique DBCC PAGE reads"));
+        assert!(error.contains("next page was refused"));
     }
 
 }

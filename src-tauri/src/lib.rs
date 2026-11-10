@@ -168,7 +168,7 @@ impl Drop for BusyGuard {
 }
 
 #[tauri::command]
-async fn decrypt_procedure(config: Connection, procedure: String, acknowledge_risk: bool) -> Result<Decryption, String> {
+async fn decrypt_procedure(config: Connection, procedure: String, acknowledge_risk: bool, max_pages: usize) -> Result<Decryption, String> {
     if !acknowledge_risk { return Err("You must acknowledge the experimental DBCC PAGE read before decrypting".into()); }
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = BusyGuard::acquire()?;
@@ -181,7 +181,7 @@ async fn decrypt_procedure(config: Connection, procedure: String, acknowledge_ri
         let output_string = output.to_string_lossy().to_string();
         // Reuse the submitted Rust decryptor's SHA1/RC4, DBCC parser, bounds, and checks.
         engine::decrypt_to_file(&config.server, &config.database, &config.username,
-            &config.password, &procedure, &output_string, 32)?;
+            &config.password, &procedure, &output_string, max_pages)?;
         let source = std::fs::read_to_string(&output).map_err(|e| format!("Cannot read decrypted output: {e}"))?;
         if source.trim().len() < 30 || source.len() > 8 * 1024 * 1024 {
             return Err("Decrypted SQL output failed size validation".into());
@@ -220,6 +220,7 @@ async fn export_sql(path: String, content: String) -> Result<String, String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![check_sqlcmd, connect_database, browse_procedures, decrypt_procedure, export_sql])
         .run(tauri::generate_context!())
         .expect("failed to run SQL Decryptor desktop");

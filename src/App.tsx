@@ -1,23 +1,26 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Button, Checkbox, Dropdown, InlineLoading, InlineNotification, Modal, PasswordInput,
+  Button, Checkbox, Dropdown, InlineLoading, InlineNotification, Modal, NumberInput, PasswordInput,
   Search, Tag, TextInput,
 } from '@carbon/react';
 import {
   DataBase, Download, Renew, Locked, Unlocked, Code, ChevronRight,
-  Connect, WarningAlt, Document,
+  Connect, WarningAlt, Document, Copy,
 } from '@carbon/icons-react';
 import { invoke } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
 type Conn = { server: string; database: string; username: string; password: string };
 type ServerInfo = { database: string; databases: string[]; productVersion: string; isSysadmin: boolean };
 type Proc = { schema: string; name: string; objectId: number; encrypted: boolean };
 type Decrypted = { procedure: string; source: string; formattedSource?: string; displayBytes?: number; bytes: number; note: string };
 type Alert = { kind: 'error' | 'success' | 'warning' | 'info'; title: string; message: string };
-type Work = 'connect' | 'browse' | 'decrypt' | 'format' | 'export' | null;
+type Work = 'connect' | 'browse' | 'decrypt' | 'format' | 'export' | 'copy' | null;
 
 const START: Conn = { server: '', database: '', username: '', password: '' };
+const DEFAULT_MAX_PAGE_READS = 32;
+const MAX_PAGE_READS = 256;
 
 function formatSqlInWorker(source: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -53,6 +56,7 @@ export default function App() {
   const [procedures, setProcedures] = useState<Proc[]>([]);
   const [selected, setSelected] = useState<Proc | null>(null);
   const [result, setResult] = useState<Decrypted | null>(null);
+  const [maxPageReads, setMaxPageReads] = useState<number | string>(DEFAULT_MAX_PAGE_READS);
   const [search, setSearch] = useState('');
   const [onlyEncrypted, setOnlyEncrypted] = useState(false);
   const [busy, setBusy] = useState<Work>(null);
@@ -68,6 +72,8 @@ export default function App() {
   const encryptedCount = procedures.filter(p => p.encrypted).length;
   const shown = result && selected && result.procedure === `${selected.schema}.${selected.name}` ? result : null;
   const shownSource = shown?.formattedSource ?? shown?.source ?? '';
+  const pageLimit = Number(maxPageReads);
+  const pageLimitValid = Number.isInteger(pageLimit) && pageLimit >= 1 && pageLimit <= MAX_PAGE_READS;
   const isBusy = busy !== null;
 
   async function checkSqlcmd() {
@@ -85,7 +91,19 @@ export default function App() {
   }
 
   function showError(error: unknown) {
-    setAlert({ kind: 'error', title: 'Operation failed', message: String(error) });
+    const message = String(error);
+    if (message.includes('page read cap reached:')) {
+      const suggestion = pageLimit < MAX_PAGE_READS
+        ? `Increase the page-read limit in the Decrypt dialog (up to ${MAX_PAGE_READS}) and retry.`
+        : `The hard maximum is ${MAX_PAGE_READS}; consult your DBA before considering another extraction method.`;
+      setAlert({
+        kind: 'error',
+        title: 'Page-read limit reached',
+        message: `Details: ${message}. ${suggestion} Higher limits can increase SQL Server I/O; test on a restored database first. No SQL source was produced.`,
+      });
+      return;
+    }
+    setAlert({ kind: 'error', title: 'Operation failed', message });
   }
 
   async function connect(database = config.database) {
@@ -123,12 +141,12 @@ export default function App() {
   }
 
   async function decrypt() {
-    if (!selected || !info || !selected.encrypted || !riskAcknowledged) return;
+    if (!selected || !info || !selected.encrypted || !riskAcknowledged || !pageLimitValid) return;
     setConfirmOpen(false); setAlert(null); setBusy('decrypt');
     setResult(null);
     try {
       const data = await invoke<Decrypted>('decrypt_procedure', {
-        config, procedure: `${selected.schema}.${selected.name}`, acknowledgeRisk: true,
+        config, procedure: `${selected.schema}.${selected.name}`, acknowledgeRisk: true, maxPages: pageLimit,
       });
       setBusy('format');
       let formattedSource: string | undefined;
@@ -158,6 +176,17 @@ export default function App() {
       setAlert({ kind: 'success', title: 'Exported', message: `Saved to ${saved}. Existing files are never overwritten.` });
     } catch (e) { showError(e); }
     finally { setBusy(null); }
+  }
+
+  async function copySql() {
+    if (!shown || !shownSource) return;
+    setBusy('copy'); setAlert(null);
+    try {
+      await writeText(shownSource);
+      setAlert({ kind: 'success', title: 'Copied to clipboard', message: 'The complete SQL source was copied.' });
+    } catch (error) {
+      setAlert({ kind: 'error', title: 'Copy failed', message: String(error) });
+    } finally { setBusy(null); }
   }
 
   function selectProcedure(proc: Proc) {
@@ -213,7 +242,7 @@ export default function App() {
       </section>
       <section className="editor-pane">
         <div className="editor-top"><div className="editor-title"><span className="eyebrow">SOURCE INSPECTOR</span><h1>{selected ? selected.name : 'Select a stored procedure'}</h1><div className="metadata">{selected && <><span>{selected.schema}</span><span className="metadata-sep">/</span><span>Object ID {selected.objectId}</span><Tag type={selected.encrypted ? 'purple' : 'gray'}>{selected.encrypted ? 'Encrypted':'Plaintext'}</Tag></>}</div></div>
-          <div className="editor-actions"><Button size="sm" kind="secondary" renderIcon={Download} disabled={!shown || isBusy} onClick={exportFile}>Export .sql</Button><Button size="sm" renderIcon={Code} disabled={!selected?.encrypted || !info || isBusy} onClick={() => { setRiskAcknowledged(false); setConfirmOpen(true); }}>Decrypt</Button></div>
+          <div className="editor-actions">{shown && <Button size="sm" kind="secondary" renderIcon={Copy} disabled={isBusy} onClick={copySql}>Copy SQL</Button>}<Button size="sm" kind="secondary" renderIcon={Download} disabled={!shown || isBusy} onClick={exportFile}>Export .sql</Button><Button size="sm" renderIcon={Code} disabled={!selected?.encrypted || !info || isBusy} onClick={() => { setRiskAcknowledged(false); setConfirmOpen(true); }}>Decrypt</Button></div>
         </div>
         {alert && <div className="alert"><InlineNotification kind={alert.kind} title={alert.title} subtitle={alert.message} lowContrast onCloseButtonClick={() => setAlert(null)}/></div>}
         {(busy === 'decrypt' || busy === 'format') && <div className="loading"><InlineLoading description={busy === 'format' ? 'Formatting decrypted SQL...' : 'Decrypting with bounded DBCC PAGE reads...'}/></div>}
@@ -225,10 +254,23 @@ export default function App() {
         <footer className="editor-footer"><span>{shown ? 'Validation passed · Not executed in SQL Server' : 'SQL scripts are never executed by this app'}</span><span>SQL Decryptor v0.1.0</span></footer>
       </section>
     </main>
-    <Modal open={confirmOpen} danger modalHeading="Decrypt encrypted stored procedure?" primaryButtonText="I understand — decrypt" secondaryButtonText="Cancel" primaryButtonDisabled={!riskAcknowledged} onRequestSubmit={decrypt} onRequestClose={() => setConfirmOpen(false)}>
+    <Modal open={confirmOpen} danger modalHeading="Decrypt encrypted stored procedure?" primaryButtonText="I understand — decrypt" secondaryButtonText="Cancel" primaryButtonDisabled={!riskAcknowledged || !pageLimitValid} onRequestSubmit={decrypt} onRequestClose={() => setConfirmOpen(false)}>
       <p className="risk-lead"><strong>{selected ? `${selected.schema}.${selected.name}` : ''}</strong> on <strong>{config.server}/{config.database}</strong></p>
       <p>The operation reads SQL Server internal pages using <strong>DBCC PAGE</strong>. It does not intentionally modify database objects, but is experimental and can consume server I/O. Server availability cannot be guaranteed.</p>
-      <p>The engine limits unique page reads to <strong>32</strong>. Use a restored database for first testing; only use a production server with DBA authorization.</p>
+      <p>The default is 32 unique pages; you can raise the cap to a maximum of 256 below. Higher limits increase server I/O and do not guarantee every procedure can be decrypted.</p>
+      <NumberInput
+        id="max-page-reads"
+        label="Maximum unique page reads"
+        min={1}
+        max={MAX_PAGE_READS}
+        step={1}
+        allowEmpty
+        value={maxPageReads}
+        invalid={!pageLimitValid}
+        invalidText={`Enter a whole number from 1 to ${MAX_PAGE_READS}.`}
+        helperText="Your choice lasts for this app session and resets to 32 after restart."
+        onChange={(_event, { value }) => setMaxPageReads(value)}
+      />
       <div className="modal-check"><Checkbox id="risk-confirm" labelText="I am authorized to inspect this database and accept the operational risk." checked={riskAcknowledged} onChange={(_evt, { checked }) => setRiskAcknowledged(checked)}/></div>
     </Modal>
   </div>;

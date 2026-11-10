@@ -2,14 +2,15 @@
 
 Desktop MVP for **connect → browse procedures → decrypt → export**. The UI is built with React/TypeScript, IBM Carbon, and Tauri 2; the backend uses the **user's `sqltextdecrypt_remote.rs` engine**, copied to `src-tauri/src/engine.rs` and adapted so it can be called directly as a Rust module.
 
-> **Status:** source project complete. Source-level verification on Linux/Omarchy: `npm run build` (tsc + Vite) passes, `cargo check` reports 0 errors, and 8 engine unit tests pass. **A full Tauri bundle build, real GUI integration, and live SQL Server remain unverified**; test against a restored database with DBA authorization first.
+> **Status:** source project complete. Verified on Linux/Omarchy: `npm run build` (tsc + Vite) passes, `cargo check` reports 0 errors, 9 engine unit tests pass, and the Tauri AppImage builds. **Real GUI integration and live SQL Server remain unverified**; test against a restored database with DBA authorization first.
 
 ## Features
 
 1. **Connect**: opens a real SQL Server connection through the installed `sqlcmd`. Reads `DB_NAME()`, `ProductVersion`, and the sysadmin role.
 2. **Browse**: reads all user-defined procedures in the selected database, filters by name, and detects `IsEncrypted`. After connecting, the database field becomes a dropdown of accessible online databases.
-3. **Decrypt**: uses SHA-1/RC4/UTF-16LE and ciphertext extraction through bounded `DBCC PAGE` calls from the existing engine. Limited to **32 unique pages**, one decryption at a time, and an acknowledgment checkbox is required for every operation. Output is strictly validated before display.
-4. **Export**: uses the native save dialog for `.sql` files and **never overwrites an existing file**.
+3. **Decrypt**: uses SHA-1/RC4/UTF-16LE and ciphertext extraction through bounded `DBCC PAGE` calls from the existing engine. The unique-page limit defaults to **32** and is configurable from 1 to **256** for the current app session. The authorization acknowledgment is required for every operation, and output is strictly validated before display.
+4. **Copy**: copies the complete decrypted SQL source to the clipboard; it copies formatted source when available, otherwise the original.
+5. **Export**: uses the native save dialog for `.sql` files and **never overwrites an existing file**.
 
 All SQL source shown in the preview is rendered as plain text only. **There is no feature to execute SQL source or modify stored procedures.**
 
@@ -21,7 +22,7 @@ src/styles.scss             Enterprise desktop styling
 src-tauri/src/lib.rs        Tauri commands, sqlcmd connection, listing, export
 src-tauri/src/engine.rs     Reused Rust decryptor (original algorithm + modified integration)
 src-tauri/tauri.conf.json   Desktop configuration
-src-tauri/capabilities/     Native dialog permission
+src-tauri/capabilities/     Native dialog and clipboard-write permissions
 ```
 
 ## Setup on Omarchy (Arch Linux)
@@ -76,11 +77,11 @@ rustc --edition=2021 --test src-tauri/src/engine.rs -o /tmp/sql_decryptor_tests
 /tmp/sql_decryptor_tests
 ```
 
-Eight engine unit tests pass (SHA-1, RC4, .NET GUID, hex, round-trip, index pointer, strict UTF-16, and the DBCC parser). These tests are **not** proof that extraction will work on every SQL Server version.
+Nine engine unit tests pass (SHA-1, RC4, .NET GUID, hex, round-trip, index pointer, strict UTF-16, DBCC parsing, and page-cap details). These tests are **not** proof that extraction will work on every SQL Server version.
 
 ## Usage
 
-Open the app and fill in Server (e.g. `localhost` or `host\instance`), Database (database name), Username (SQL Server login), and password (not stored). Press **Connect**; choose a different database from the dropdown to load its procedures immediately. Select an encrypted procedure, then **Decrypt**. The dialog asks for acknowledgment before the `DBCC PAGE` operation. Once the source appears, press **Export .sql** to choose a save location. The SQL file is for analysis only; **do not execute it in production**.
+Open the app and fill in Server (e.g. `localhost` or `host\instance`), Database (database name), Username (SQL Server login), and password (not stored). Press **Connect**; choose a different database from the dropdown to load its procedures immediately. Select an encrypted procedure, then **Decrypt**. In the confirmation dialog, choose the page-read limit (default 32, hard maximum 256) and acknowledge the risk. After the source appears, use **Copy SQL** for the complete source or **Export .sql** to save it. The SQL file is for analysis only; **do not execute it in production**.
 
 ## Limits and security
 
@@ -88,7 +89,7 @@ Open the app and fill in Server (e.g. `localhost` or `host\instance`), Database 
 - At startup the app checks for `sqlcmd` and shows a persistent warning with a **Check again** action if it is missing. The AppImage/installer does not bundle `sqlcmd`; restart the app after changing `PATH`.
 - The password exists only in frontend memory for the session, is passed over Tauri IPC, and is forwarded to the **sqlcmd child process environment**. It is not sent via the `-P` argument, stored in a configuration file, or recorded in logs. Clearing the field or closing the app removes the value from that process.
 - The engine **does not intentionally write to the database** (no DDL/DML). However, `DBCC PAGE` is an undocumented internal operation and can consume server resources. **There is no guarantee of zero downtime.** Test on a restored database and obtain DBA permission before using it in production.
-- `max_pages` for the GUI is pinned to 32. If it is too small for a large procedure, the process refuses instead of raising it automatically. The page and internal LOB parsers need cross-version validation.
+- The GUI page-read limit defaults to 32 unique pages per operation and can be set to 1–256 in the Decrypt confirmation. Higher limits cause more `DBCC PAGE` reads and may increase server I/O; the hard maximum is 256.
 - The GUI does not open a connection automatically at app startup. Only selecting an encrypted procedure can request decryption.
 - `src-tauri/src/engine.rs` still uses the internal `sysobjvalues` index mapping (`object_id=60`, `index_id=1`) based on inspected SQL Server 2019 metadata; it is not guaranteed to work on other SQL Server versions.
 - The procedure list loads all user-defined procedures in the selected database; the MVP has no pagination or data table editor.
