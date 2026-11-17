@@ -70,6 +70,51 @@ npm run desktop:build
 
 If you only need to debug the frontend, `npm run dev` opens the HTML page, but **connect/decrypt/export are unavailable** in a regular browser because they require the Tauri runtime.
 
+## Decryptor MCP server (no app window)
+
+`src-tauri/src/bin/sql_decryptor_mcp.rs` is a second binary: a stdio MCP server with three tools (`list_databases`, `list_procedures`, `decrypt_procedure`). It reuses `src-tauri/src/engine.rs` and needs `sqlcmd` on PATH. Design and decisions: [docs/mcp-server.md](docs/mcp-server.md), [docs/adr/0001](docs/adr/0001-mcp-server-in-tauri-crate-with-config-level-risk-acknowledgment.md).
+
+```bash
+cd src-tauri
+cargo build --release --bin sql_decryptor_mcp   # target/release/sql_decryptor_mcp
+./mcp-smoke-test.sh                             # protocol + config gates, no database needed
+```
+
+Configuration is environment-only; the password is never a tool argument:
+
+| Variable | Meaning |
+|---|---|
+| `SQL_DECRYPTOR_SERVER`, `SQL_DECRYPTOR_USER`, `SQL_DECRYPTOR_PASSWORD`, `SQL_DECRYPTOR_DATABASE` | The one connection. Keep the password in `~/.hermes/.env`. |
+| `SQL_DECRYPTOR_ALLOW_DBCC_PAGE` | The Risk Acknowledgment. Present and truthy = a human enabled `DBCC PAGE` reads; delete it (or set `0`) to revoke. |
+| `SQL_DECRYPTOR_MAX_PAGES` | Page Cap, default 32, 1–256. Not settable per call. |
+
+Put the connection values in `~/.hermes/.env` (the password never appears in `config.yaml` or a tool call):
+
+```bash
+SQL_DECRYPTOR_SERVER=host\instance
+SQL_DECRYPTOR_USER=sa
+SQL_DECRYPTOR_PASSWORD=...
+SQL_DECRYPTOR_DATABASE=YourDatabase
+```
+
+Register it in Hermes (the agent cannot edit `config.yaml` itself), from `src-tauri/`:
+
+```bash
+cd src-tauri
+yes "" | hermes mcp add sql_decryptor \
+  --command "$PWD/target/release/sql_decryptor_mcp" \
+  --env 'SQL_DECRYPTOR_SERVER=${SQL_DECRYPTOR_SERVER}' 'SQL_DECRYPTOR_USER=${SQL_DECRYPTOR_USER}' \
+        'SQL_DECRYPTOR_PASSWORD=${SQL_DECRYPTOR_PASSWORD}' 'SQL_DECRYPTOR_DATABASE=${SQL_DECRYPTOR_DATABASE}' \
+        'SQL_DECRYPTOR_MAX_PAGES=32' 'SQL_DECRYPTOR_ALLOW_DBCC_PAGE=enabled' \
+        'PATH=${HOME}/.local/bin:/usr/local/bin:/usr/bin:/bin'
+hermes config set mcp_servers.sql_decryptor.trust untrusted   # approval prompt per decryption
+hermes mcp test sql_decryptor                                 # expect: Connected, 3 tools
+```
+
+`hermes mcp add` prompts `Enable all 3 tools? [Y/n/select]` and saves nothing if it is cancelled (`yes ""` answers Y). Start a new Hermes session, or `/reload-mcp`, before the tools appear.
+
+A real decryption still needs a restored (or DBA-approved) database and a login with `DBCC PAGE` rights; the smoke test proves the protocol, not the extractor.
+
 ### Testing the Rust engine separately
 
 ```bash

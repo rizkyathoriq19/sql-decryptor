@@ -270,20 +270,34 @@ struct Client {
     page_count: usize,
     page_cache: HashMap<PageRef, Vec<u8>>,
 }
+// Shared by the desktop backend and the MCP server: fixed argv, password only in the child environment.
+pub(crate) fn sqlcmd_query(server: &str, database: &str, user: &str, password: &str, sql: &str) -> Result<String, String> {
+    let output = Command::new("sqlcmd")
+        .env("SQLCMDPASSWORD", password)
+        .args(["-S", server, "-U", user, "-d", database,
+               "-h", "-1", "-W", "-s", "|", "-w", "65535", "-l", "8", "-t", "15", "-b", "-Q", sql])
+        .output().map_err(|e| format!("unable to launch sqlcmd: {e}. Install sqlcmd and add it to PATH."))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    if !output.status.success() || stdout.contains("Sqlcmd: Error:") || stderr.contains("Sqlcmd: Error:") {
+        return Err(format!("sqlcmd failed: {} {}", stdout.chars().take(400).collect::<String>(), stderr.chars().take(400).collect::<String>()));
+    }
+    Ok(stdout)
+}
+
+pub(crate) fn check_identifier(value: &str, label: &str, permitted: &str) -> Result<(), String> {
+    if value.is_empty() || value.len() > 128 ||
+        !value.bytes().all(|b| permitted.as_bytes().contains(&b)) ||
+        !value.as_bytes()[0].is_ascii_alphanumeric()
+    {
+        return Err(format!("Invalid {label}: use ASCII letters/numbers and permitted punctuation"));
+    }
+    Ok(())
+}
+
 impl Client {
     fn query(&self, sql: &str) -> Result<String, String> {
-        // SQLCMDPASSWORD is inherited; credentials never appear in arguments/logs.
-        let output = Command::new("sqlcmd")
-            .env("SQLCMDPASSWORD", &self.password)
-            .args(["-S", &self.server, "-U", &self.user, "-d", &self.database,
-                   "-h", "-1", "-W", "-s", "|", "-w", "65535", "-l", "8", "-t", "15", "-b", "-Q", sql])
-            .output().map_err(|e| format!("unable to launch sqlcmd: {e}"))?;
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        if !output.status.success() || stdout.contains("Sqlcmd: Error:") || stderr.contains("Sqlcmd: Error:") {
-            return Err(format!("sqlcmd failed: {} {}", stdout.chars().take(400).collect::<String>(), stderr.chars().take(400).collect::<String>()));
-        }
-        Ok(stdout)
+        sqlcmd_query(&self.server, &self.database, &self.user, &self.password, sql)
     }
     fn read_page(&mut self, r: PageRef) -> Result<Vec<u8>, String> {
         if let Some(p) = self.page_cache.get(&r) { return Ok(p.clone()); }
@@ -465,7 +479,7 @@ pub(crate) fn check_database_name(s: &str) -> Result<(), String> {
     }
     Ok(())
 }
-fn remote_run(server: String, database: String, user: String, procedure: String, output: Option<String>, inspect: bool, allow_pages: bool, max_pages: usize, password: String) -> Result<(), String> {
+pub(crate) fn remote_run(server: String, database: String, user: String, procedure: String, output: Option<String>, inspect: bool, allow_pages: bool, max_pages: usize, password: String) -> Result<(), String> {
     checked_token(&server, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,:-_\\", "server")?;
     check_database_name(&database)?;
     checked_token(&user, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-", "user")?;

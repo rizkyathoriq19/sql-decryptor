@@ -51,13 +51,7 @@ struct Decryption {
 }
 
 fn check_identifier(value: &str, label: &str, permitted: &str) -> Result<(), String> {
-    if value.is_empty() || value.len() > 128 ||
-        !value.bytes().all(|b| permitted.as_bytes().contains(&b)) ||
-        !value.as_bytes()[0].is_ascii_alphanumeric()
-    {
-        return Err(format!("Invalid {label}: use ASCII letters/numbers and permitted punctuation"));
-    }
-    Ok(())
+    engine::check_identifier(value, label, permitted)
 }
 
 fn validate(conn: &Connection) -> Result<(), String> {
@@ -72,23 +66,9 @@ fn validate(conn: &Connection) -> Result<(), String> {
 
 fn sqlcmd(conn: &Connection, query: &str) -> Result<String, String> {
     validate(conn)?;
-    // Environment is applied to the child process only, never to the global app.
-    // Do not pass a password to the command-line arguments or a shell.
-    let output = Command::new("sqlcmd")
-        .env("SQLCMDPASSWORD", &conn.password)
-        .args([
-            "-S", &conn.server, "-U", &conn.username, "-d", &conn.database,
-            "-h", "-1", "-W", "-s", "|", "-w", "65535",
-            "-l", "8", "-t", "15", "-b", "-Q", query,
-        ])
-        .output()
-        .map_err(|e| format!("Could not run sqlcmd ({e}). Install sqlcmd and add it to PATH before launching the app."))?;
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-    if !output.status.success() || stdout.contains("Sqlcmd: Error:") || stderr.contains("Sqlcmd: Error:") {
-        return Err(format!("SQL Server request failed: {}", format!("{stdout} {stderr}").chars().take(900).collect::<String>()));
-    }
-    Ok(stdout)
+    // The password reaches only the sqlcmd child environment, never argv, a shell, or logs.
+    engine::sqlcmd_query(&conn.server, &conn.database, &conn.username, &conn.password, query)
+        .map_err(|e| e.replacen("sqlcmd failed:", "SQL Server request failed:", 1))
 }
 
 fn sqlcmd_available() -> bool {
